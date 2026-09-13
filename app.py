@@ -1,103 +1,196 @@
 import os
 import pickle
 import numpy as np
-import streamlit as st
+from flask import Flask, render_template_string, request
 
-# Set up page config
-st.set_page_config(
-    page_title="Student Risk & Grade Predictor",
-    page_icon="🎓",
-    layout="wide"
-)
+app = Flask(__name__)
 
-# Custom Styling
-st.markdown("""
+# Load Model
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "logistic.pkl")
+model = None
+
+try:
+    with open(MODEL_PATH, "rb") as f:
+        model = pickle.load(f)
+except Exception as e:
+    print(f"Error loading model: {e}")
+
+# HTML & CSS Embedded Template
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Risk Classifier</title>
     <style>
-    .main-title {
-        color: #1E3A8A;
-        font-weight: 800;
-        text-align: center;
-        margin-bottom: 8px;
-    }
-    .sub-title {
-        color: #4B5563;
-        text-align: center;
-        margin-bottom: 24px;
-    }
-    .stButton>button {
-        width: 100%;
-        background-color: #2563EB;
-        color: white;
-        font-weight: bold;
-        padding: 10px;
-        border-radius: 8px;
-    }
+        :root {
+            --primary: #4f46e5;
+            --background: #f8fafc;
+            --card-bg: #ffffff;
+            --text: #1e293b;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--background);
+            color: var(--text);
+            margin: 0;
+            padding: 40px 20px;
+        }
+        .container {
+            max-width: 650px;
+            margin: 0 auto;
+            background: var(--card-bg);
+            padding: 32px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+        }
+        h2 { text-align: center; color: var(--primary); margin-bottom: 24px; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .form-group { margin-bottom: 16px; }
+        .form-group.full { grid-column: span 2; }
+        label { display: block; font-weight: 600; font-size: 0.875rem; margin-bottom: 6px; }
+        input, select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            box-sizing: border-box;
+            font-size: 0.95rem;
+        }
+        button {
+            width: 100%;
+            background-color: var(--primary);
+            color: white;
+            padding: 12px;
+            border: none;
+            border-radius: 6px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        button:hover { opacity: 0.9; }
+        .result {
+            margin-top: 24px;
+            padding: 16px;
+            border-radius: 8px;
+            text-align: center;
+            font-size: 1.25rem;
+            font-weight: 700;
+            background: #e0e7ff;
+            color: #3730a3;
+        }
     </style>
-""", unsafe_allow_html=True)
+</head>
+<body>
 
-# Helper function to load model safely
-@st.cache_resource
-def load_model():
-    model_path = "model.pkl"
-    if not os.path.exists(model_path):
-        st.error("Model file (`model.pkl`) not found in repository.")
-        st.stop()
-    with open(model_path, "rb") as file:
-        return pickle.load(file)
+<div class="container">
+    <h2>Student Risk Assessment</h2>
+    <form action="/predict" method="POST">
+        <div class="grid">
+            <div class="form-group">
+                <label>Attendance (%)</label>
+                <input type="number" step="any" name="attendance" required>
+            </div>
+            <div class="form-group">
+                <label>Study Hours / Week</label>
+                <input type="number" step="any" name="study_hours" required>
+            </div>
+            <div class="form-group">
+                <label>Past Failures</label>
+                <input type="number" name="past_failures" min="0" required>
+            </div>
+            <div class="form-group">
+                <label>Assignments Completed (%)</label>
+                <input type="number" step="any" name="assignments_completed_pct" required>
+            </div>
+            <div class="form-group">
+                <label>Parental Education</label>
+                <select name="parental_education" required>
+                    <option value="0">High School</option>
+                    <option value="1">Bachelor</option>
+                    <option value="2">Master</option>
+                    <option value="3">Doctorate</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Family Income</label>
+                <select name="family_income" required>
+                    <option value="0">Low</option>
+                    <option value="1">Medium</option>
+                    <option value="2">High</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Extracurricular Activities</label>
+                <select name="extracurricular" required>
+                    <option value="0">No</option>
+                    <option value="1">Yes</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Internet Access</label>
+                <select name="internet_access" required>
+                    <option value="0">No</option>
+                    <option value="1">Yes</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Previous Grade</label>
+                <input type="number" step="any" name="previous_grade" required>
+            </div>
+            <div class="form-group">
+                <label>Final Score</label>
+                <input type="number" step="any" name="final_score" required>
+            </div>
+        </div>
+        <button type="submit">Predict Status</button>
+    </form>
 
-model = load_model()
+    {% if prediction %}
+    <div class="result">
+        Predicted Category: {{ prediction }}
+    </div>
+    {% endif %}
+</div>
 
-# Title Header
-st.markdown("<h1 class='main-title'>🎓 Student Risk Prediction System</h1>", unsafe_allow_html=True)
-st.markdown("<p class='sub-title'>Adjust academic parameters below to estimate outcome using the trained classification model.</p>", unsafe_allow_html=True)
+</body>
+</html>
+"""
 
-# Layout: Form Inputs & Summary Metrics
-col1, col2 = st.columns([2, 1], gap="large")
+@app.route("/", methods=["GET"])
+def home():
+    return render_template_string(HTML_TEMPLATE)
 
-with col1:
-    st.subheader("📚 Academic Marks Input")
-    
-    c1, c2 = st.columns(2)
-    with c1:
-        hindi = st.slider("Hindi Score", 0, 100, 75)
-        english = st.slider("English Score", 0, 100, 80)
-        science = st.slider("Science Score", 0, 100, 70)
-    with c2:
-        maths = st.slider("Maths Score", 0, 100, 85)
-        history = st.slider("History Score", 0, 100, 65)
-        geography = st.slider("Geography Score", 0, 100, 72)
+@app.route("/predict", methods=["POST"])
+def predict():
+    if not model:
+        return render_template_string(HTML_TEMPLATE, prediction="Model file missing!")
 
-    total_marks = hindi + english + science + maths + history + geography
-
-with col2:
-    st.subheader("📊 Score Summary")
-    st.metric(label="Total Marks", value=f"{total_marks} / 600")
-    st.metric(label="Overall Percentage", value=f"{(total_marks / 6):.2f}%")
-    
-    predict_btn = st.button("🚀 Predict Outcome")
-
-# Inference logic on button click
-if predict_btn:
-    # Build input feature array to match model structure
-    input_features = np.array([[hindi, english, science, maths, history, geography, total_marks]])
-    
     try:
-        prediction = model.predict(input_features)[0]
-        
-        st.divider()
-        st.balloons()
-        
-        res_col1, res_col2 = st.columns(2)
-        with res_col1:
-            st.success(f"**Predicted Result / Status:** {prediction}")
-            
-        with res_col2:
-            if hasattr(model, "predict_proba"):
-                probs = model.predict_proba(input_features)[0]
-                confidence = np.max(probs) * 100
-                st.info(f"**Model Confidence:** {confidence:.2f}%")
-            else:
-                st.info("Inference completed successfully.")
-                
+        # Extract features in exact order expected by logistic.pkl
+        features = [
+            float(request.form["attendance"]),
+            float(request.form["study_hours"]),
+            float(request.form["past_failures"]),
+            float(request.form["assignments_completed_pct"]),
+            float(request.form["parental_education"]),
+            float(request.form["family_income"]),
+            float(request.form["extracurricular"]),
+            float(request.form["internet_access"]),
+            float(request.form["previous_grade"]),
+            float(request.form["final_score"]),
+        ]
+
+        prediction = model.predict([features])[0]
+        return render_template_string(HTML_TEMPLATE, prediction=str(prediction))
+
     except Exception as e:
-        st.error(f"Error making prediction: {e}")
+        return render_template_string(HTML_TEMPLATE, prediction=f"Error: {str(e)}")
+
+# Vercel entrypoint
+app = app
+
+if __name__ == "__main__":
+    app.run(debug=True)
